@@ -1,0 +1,1430 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SM64 MIPS Disassembler</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=IM+Fell+English:ital@0;1&family=VT323&family=Crimson+Text:ital,wght@0,400;0,600;1,400&display=swap');
+
+:root {
+  --bg:       #1a1118;
+  --bg2:      #201520;
+  --panel:    #251a22;
+  --panel2:   #2d2030;
+  --border:   #4a2e3f;
+  --border2:  #6b3d52;
+  --rose:     #c4637a;
+  --rose2:    #e8849a;
+  --blush:    #f2b5c2;
+  --petal:    #f7d5dc;
+  --gold:     #c9935a;
+  --gold2:    #e8b97a;
+  --sage:     #7a9e7e;
+  --sage2:    #9dbfa1;
+  --lavender: #a07ab8;
+  --muted:    #7a5468;
+  --muted2:   #9e6e84;
+  --text:     #e8cfd8;
+  --text2:    #f5e8ed;
+  --dim:      #4a2e3f;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'VT323', monospace;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  cursor: default;
+}
+
+/* Subtle noise texture overlay */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.75' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.04'/%3E%3C/svg%3E");
+  pointer-events: none;
+  z-index: 9998;
+  opacity: 0.6;
+}
+
+/* Old monitor scanlines — very subtle */
+body::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background: repeating-linear-gradient(0deg, transparent, transparent 3px, rgba(0,0,0,0.04) 3px, rgba(0,0,0,0.04) 4px);
+  pointer-events: none;
+  z-index: 9999;
+}
+
+/* ── HEADER ───────────────────────────────────────────── */
+header {
+  padding: 10px 22px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  background: linear-gradient(180deg, #120d12 0%, var(--bg) 100%);
+  flex-shrink: 0;
+  position: relative;
+}
+
+header::after {
+  content: '';
+  position: absolute;
+  bottom: 0; left: 0; right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--rose) 30%, var(--border2) 70%, transparent);
+  opacity: 0.4;
+}
+
+/* SVG Logo */
+.site-logo {
+  flex-shrink: 0;
+  width: 52px;
+  height: 52px;
+  filter: drop-shadow(0 0 8px rgba(196,99,122,0.5));
+}
+
+.header-text {}
+
+.logo-title {
+  font-family: 'IM Fell English', serif;
+  font-size: 22px;
+  color: var(--blush);
+  letter-spacing: 1px;
+  text-shadow: 0 0 20px rgba(196,99,122,0.6), 0 1px 0 rgba(0,0,0,0.5);
+  line-height: 1;
+}
+
+.logo-title em {
+  font-style: italic;
+  color: var(--gold2);
+  text-shadow: 0 0 14px rgba(201,147,90,0.5);
+}
+
+.logo-sub {
+  font-family: 'VT323', monospace;
+  font-size: 13px;
+  color: var(--muted2);
+  letter-spacing: 2px;
+  margin-top: 1px;
+}
+
+.rom-status {
+  margin-left: auto;
+  font-size: 14px;
+  color: var(--muted);
+  letter-spacing: 1px;
+  font-family: 'VT323', monospace;
+}
+
+.rom-status.loaded {
+  color: var(--sage2);
+  text-shadow: 0 0 8px rgba(122,158,126,0.5);
+}
+
+/* decorative divider in header */
+.hdr-divider {
+  width: 1px;
+  height: 36px;
+  background: linear-gradient(180deg, transparent, var(--border2), transparent);
+  flex-shrink: 0;
+}
+
+/* ── TAB BAR ──────────────────────────────────────────── */
+.tabbar {
+  display: flex;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+  background: var(--bg2);
+  position: relative;
+}
+
+.tabbar::after {
+  content: '';
+  position: absolute;
+  bottom: 0; left: 0; right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--border2) 50%, transparent);
+  opacity: 0.5;
+}
+
+.tab {
+  padding: 8px 18px;
+  font-family: 'VT323', monospace;
+  font-size: 15px;
+  letter-spacing: 1px;
+  color: var(--muted);
+  cursor: pointer;
+  border-right: 1px solid var(--border);
+  border-bottom: 2px solid transparent;
+  transition: all .2s;
+  user-select: none;
+  position: relative;
+}
+
+.tab:hover {
+  color: var(--blush);
+  background: rgba(196,99,122,0.05);
+}
+
+.tab.active {
+  color: var(--blush);
+  border-bottom-color: var(--rose);
+  background: rgba(196,99,122,0.08);
+  text-shadow: 0 0 10px rgba(196,99,122,0.4);
+}
+
+/* ── LAYOUT ───────────────────────────────────────────── */
+.workspace { flex: 1; display: flex; overflow: hidden; }
+
+.pane {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  overflow: hidden;
+  border-right: 1px solid var(--border);
+}
+.pane:last-child { border-right: none; }
+
+.pane-hdr {
+  padding: 7px 16px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+  font-family: 'VT323', monospace;
+  font-size: 14px;
+  letter-spacing: 2px;
+  color: var(--muted2);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+/* fairy dot indicators */
+.dot {
+  width: 7px; height: 7px;
+  border-radius: 50%;
+  background: var(--rose);
+  box-shadow: 0 0 6px var(--rose), 0 0 12px rgba(196,99,122,0.3);
+  flex-shrink: 0;
+}
+.dot.g { background: var(--sage); box-shadow: 0 0 6px var(--sage); }
+.dot.b { background: var(--lavender); box-shadow: 0 0 6px var(--lavender); }
+.dot.y { background: var(--gold); box-shadow: 0 0 6px var(--gold); }
+
+/* ── CONTROLS ─────────────────────────────────────────── */
+.ctrls {
+  padding: 7px 16px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  gap: 7px;
+  align-items: center;
+  flex-wrap: wrap;
+  background: var(--panel2);
+  flex-shrink: 0;
+}
+
+label {
+  font-family: 'VT323', monospace;
+  font-size: 13px;
+  color: var(--muted2);
+  letter-spacing: 1px;
+}
+
+input[type="text"] {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 0;
+  color: var(--blush);
+  font-family: 'VT323', monospace;
+  font-size: 14px;
+  padding: 3px 8px;
+  outline: none;
+  transition: border-color .2s, box-shadow .2s;
+}
+
+input[type="text"]:focus {
+  border-color: var(--rose);
+  box-shadow: 0 0 8px rgba(196,99,122,0.25);
+}
+
+input[type="text"]::placeholder { color: var(--dim); }
+
+/* Buttons — old web style with soft bevel feel */
+.btn {
+  background: linear-gradient(180deg, #3d1e2c 0%, #2a1320 100%);
+  color: var(--blush);
+  border: 1px solid var(--border2);
+  font-family: 'VT323', monospace;
+  font-size: 14px;
+  letter-spacing: 1px;
+  padding: 4px 12px;
+  cursor: pointer;
+  transition: all .15s;
+  text-shadow: 0 0 8px rgba(242,181,194,0.3);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.06), 0 1px 3px rgba(0,0,0,0.4);
+}
+.btn:hover {
+  background: linear-gradient(180deg, #5a2a3d 0%, #3d1e2c 100%);
+  border-color: var(--rose);
+  color: var(--petal);
+  box-shadow: 0 0 10px rgba(196,99,122,0.3), inset 0 1px 0 rgba(255,255,255,0.08);
+}
+.btn:active {
+  background: linear-gradient(180deg, #2a1320 0%, #3d1e2c 100%);
+  box-shadow: inset 0 2px 4px rgba(0,0,0,0.4);
+}
+
+.btn.sec {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--muted2);
+  box-shadow: none;
+  text-shadow: none;
+}
+.btn.sec:hover { border-color: var(--border2); color: var(--text); box-shadow: none; }
+
+.btn.grn {
+  background: linear-gradient(180deg, #1e3020 0%, #141e15 100%);
+  border: 1px solid var(--sage);
+  color: var(--sage2);
+  text-shadow: 0 0 8px rgba(122,158,126,0.4);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.04);
+}
+.btn.grn:hover {
+  background: linear-gradient(180deg, #2a4030 0%, #1e3020 100%);
+  box-shadow: 0 0 10px rgba(122,158,126,0.25);
+}
+
+.btn.blu {
+  background: linear-gradient(180deg, #281e38 0%, #1a1325 100%);
+  border: 1px solid var(--lavender);
+  color: #c4a8d8;
+  text-shadow: 0 0 8px rgba(160,122,184,0.4);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.04);
+}
+.btn.blu:hover {
+  background: linear-gradient(180deg, #382a4c 0%, #281e38 100%);
+  box-shadow: 0 0 10px rgba(160,122,184,0.25);
+}
+
+/* ── TEXTAREA ─────────────────────────────────────────── */
+textarea {
+  flex: 1;
+  background: transparent;
+  border: none;
+  color: var(--text);
+  font-family: 'VT323', monospace;
+  font-size: 14px;
+  padding: 12px 16px;
+  resize: none;
+  outline: none;
+  line-height: 1.7;
+}
+textarea::placeholder { color: var(--dim); }
+
+/* ── DISASM OUTPUT ────────────────────────────────────── */
+.out-area {
+  flex: 1;
+  overflow-y: auto;
+  padding: 4px 0;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border2) transparent;
+  user-select: none;
+}
+
+.out-area::-webkit-scrollbar { width: 6px; }
+.out-area::-webkit-scrollbar-track { background: transparent; }
+.out-area::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 3px; }
+
+.irow {
+  display: grid;
+  grid-template-columns: 96px 88px 1fr;
+  padding: 1px 16px;
+  font-family: 'VT323', monospace;
+  font-size: 15px;
+  line-height: 1.75;
+  transition: background .1s;
+}
+.irow:hover { background: rgba(196,99,122,0.05); }
+.irow.hi {
+  background: rgba(201,147,90,0.1);
+  box-shadow: inset 2px 0 0 var(--gold);
+}
+
+/* function label row */
+.fn-label-row {
+  padding: 4px 16px 2px;
+  font-family: 'IM Fell English', serif;
+  font-style: italic;
+  font-size: 12px;
+  color: var(--gold);
+  border-top: 1px solid rgba(201,147,90,0.15);
+  margin-top: 4px;
+  opacity: 0.9;
+}
+
+.addr { color: var(--muted); cursor: pointer; font-family: 'VT323', monospace; }
+.addr:hover { color: var(--gold2); }
+.hcol { color: var(--dim); opacity: 0.7; }
+.acol { user-select: text; }
+
+/* ASM syntax colours — warm fairy palette */
+.mn   { color: var(--blush); font-weight: normal; }
+.rg   { color: var(--gold2); }
+.im   { color: var(--sage2); }
+.lref { color: var(--rose2); cursor: pointer; text-decoration: underline dotted rgba(232,132,154,0.5); }
+.lref:hover { color: var(--petal); }
+.cmt  { color: var(--dim); opacity: 0.8; font-style: italic; }
+.psd  { color: var(--lavender); font-style: italic; }
+.err  { color: var(--rose); opacity: .65; }
+
+.stats {
+  padding: 6px 16px;
+  border-top: 1px solid var(--border);
+  font-family: 'VT323', monospace;
+  font-size: 13px;
+  color: var(--muted);
+  display: flex;
+  gap: 16px;
+  flex-shrink: 0;
+  background: var(--panel);
+}
+.stats span { color: var(--text2); }
+
+/* ── HEX EDITOR ───────────────────────────────────────── */
+.hex-editor {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px 16px;
+  font-family: 'VT323', monospace;
+  font-size: 14px;
+  line-height: 1.85;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border2) transparent;
+}
+
+.hex-row { display: flex; align-items: center; }
+.hex-ra { color: var(--muted); width: 96px; flex-shrink: 0; user-select: none; }
+.hex-bytes { display: flex; flex-wrap: nowrap; gap: 2px; flex: 1; }
+
+.hcell {
+  width: 26px;
+  text-align: center;
+  padding: 1px 2px;
+  cursor: pointer;
+  border: 1px solid transparent;
+  color: var(--muted2);
+  transition: all .1s;
+}
+.hcell:hover {
+  background: rgba(160,122,184,0.12);
+  border-color: var(--lavender);
+  color: #d4b8e8;
+}
+.hcell.sel {
+  background: rgba(196,99,122,0.18);
+  border-color: var(--rose);
+  color: var(--petal);
+}
+
+.hex-asc { color: var(--dim); margin-left: 12px; letter-spacing: 1px; user-select: none; opacity: 0.7; }
+
+.hex-bar {
+  padding: 7px 16px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  gap: 7px;
+  align-items: center;
+  flex-shrink: 0;
+  background: var(--panel2);
+  flex-wrap: wrap;
+}
+
+/* ── ROM LOADER ───────────────────────────────────────── */
+.drop-zone {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  color: var(--muted);
+  border: 1px dashed var(--border2);
+  margin: 16px;
+  border-radius: 2px;
+  transition: all .25s;
+  cursor: pointer;
+  position: relative;
+  overflow: hidden;
+}
+
+.drop-zone::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(ellipse at center, rgba(196,99,122,0.04) 0%, transparent 70%);
+  pointer-events: none;
+}
+
+.drop-zone:hover, .drop-zone.drag {
+  border-color: var(--rose);
+  color: var(--blush);
+  background: rgba(196,99,122,0.04);
+}
+
+.drop-icon { font-size: 42px; opacity: .4; }
+.drop-text {
+  font-family: 'IM Fell English', serif;
+  font-style: italic;
+  font-size: 16px;
+  letter-spacing: 1px;
+  color: var(--blush);
+}
+.drop-sub { font-family: 'VT323', monospace; font-size: 13px; opacity: .5; letter-spacing: 1px; }
+
+.rom-info {
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border);
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  flex-shrink: 0;
+  background: var(--panel2);
+}
+.rf .k { color: var(--muted2); margin-right: 6px; font-size: 13px; }
+.rf .v { color: var(--blush); font-size: 13px; }
+
+/* ── FUNCTION LIST ────────────────────────────────────── */
+.fn-list {
+  flex: 1;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border2) transparent;
+}
+
+.fn-row {
+  display: flex;
+  align-items: center;
+  padding: 5px 16px;
+  gap: 12px;
+  border-bottom: 1px solid rgba(74,46,63,0.6);
+  cursor: pointer;
+  transition: background .1s;
+  font-family: 'VT323', monospace;
+}
+.fn-row:hover { background: rgba(196,99,122,0.05); }
+
+.fn-addr { color: var(--gold); font-size: 14px; width: 90px; flex-shrink: 0; }
+
+.fn-lbl { flex: 1; }
+.fn-lbl input {
+  background: transparent;
+  border: none;
+  color: var(--text);
+  font-family: 'VT323', monospace;
+  font-size: 14px;
+  outline: none;
+  width: 100%;
+}
+.fn-lbl input:focus { color: var(--blush); }
+
+.fn-sz { color: var(--muted); font-size: 12px; }
+
+.fn-add {
+  padding: 7px 16px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  gap: 7px;
+  flex-shrink: 0;
+  background: var(--panel2);
+  align-items: center;
+}
+
+/* ── TAB CONTENT ──────────────────────────────────────── */
+.tab-content { display: none; flex: 1; overflow: hidden; flex-direction: column; }
+.tab-content.active { display: flex; }
+
+/* ── TOAST ────────────────────────────────────────────── */
+#toast {
+  position: fixed;
+  bottom: 16px;
+  right: 16px;
+  background: var(--panel2);
+  border: 1px solid var(--border2);
+  border-left: 3px solid var(--rose);
+  color: var(--blush);
+  padding: 8px 14px;
+  font-family: 'VT323', monospace;
+  font-size: 14px;
+  letter-spacing: 1px;
+  opacity: 0;
+  transition: opacity .3s;
+  pointer-events: none;
+  z-index: 10000;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+}
+#toast.show { opacity: 1; }
+
+/* example buttons strip */
+.ex-strip {
+  padding: 5px 16px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  gap: 5px;
+  flex-wrap: wrap;
+  background: var(--panel);
+  flex-shrink: 0;
+  align-items: center;
+}
+.ex-strip label { font-size: 12px; opacity: .7; }
+
+/* ── TOOLTIPS ─────────────────────────────────────────── */
+.fn-tooltip {
+  position: fixed;
+  background: var(--panel2);
+  border: 1px solid var(--border2);
+  border-left: 2px solid var(--rose);
+  color: var(--blush);
+  font-family: 'VT323', monospace;
+  font-size: 13px;
+  padding: 5px 10px;
+  pointer-events: none;
+  z-index: 99999;
+  white-space: nowrap;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.5);
+  max-width: 340px;
+  white-space: normal;
+  line-height: 1.4;
+}
+.fn-tooltip .tt-name { color: var(--gold2); font-size: 14px; }
+.fn-tooltip .tt-args { color: var(--sage2); font-size: 12px; margin-top: 2px; }
+.fn-tooltip .tt-cat  { color: var(--muted2); font-size: 11px; margin-top: 1px; letter-spacing: 1px; }
+
+/* ── COMING SOON ──────────────────────────────────────── */
+.coming-soon {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  color: var(--muted);
+}
+.coming-soon .cs-title {
+  font-family: 'IM Fell English', serif;
+  font-style: italic;
+  font-size: 28px;
+  color: var(--blush);
+  opacity: 0.7;
+  text-shadow: 0 0 20px rgba(196,99,122,0.3);
+}
+.coming-soon .cs-sub {
+  font-family: 'VT323', monospace;
+  font-size: 14px;
+  letter-spacing: 3px;
+  color: var(--muted);
+  opacity: 0.6;
+}
+.coming-soon .cs-deco {
+  font-size: 11px;
+  color: var(--dim);
+  letter-spacing: 2px;
+  margin-top: 8px;
+  font-family: 'VT323', monospace;
+}
+
+/* fn-row with desc */
+.fn-desc { color: var(--muted2); font-size: 12px; font-style: italic; max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 3px; }
+</style>
+</head>
+<body>
+
+<!-- ══ HEADER ══════════════════════════════════════════════════════════════ -->
+<header>
+  
+
+  <div class="hdr-divider"></div>
+
+  <div class="header-text">
+    <div class="logo-title">SM64 <em>Disassembler</em></div>
+    <div class="logo-sub">MIPS R4300i &middot; Interactive &middot; v2</div>
+  </div>
+
+  <div class="hdr-divider"></div>
+
+  <div class="rom-status" id="romStatus">no rom loaded</div>
+</header>
+
+<!-- ══ TAB BAR ══════════════════════════════════════════════════════════════ -->
+<div class="tabbar">
+  <div class="tab active"  onclick="switchTab('disasm')">disasm</div>
+  <div class="tab"         onclick="switchTab('rom')">rom loader</div>
+  <div class="tab"         onclick="switchTab('asmEdit')">asm editor</div>
+  <div class="tab"         onclick="switchTab('hexEdit')">hex editor</div>
+  <div class="tab"         onclick="switchTab('funcs')">functions</div>
+  <div class="tab"         onclick="switchTab('lvlscript')">level script</div>
+  <div class="tab"         onclick="switchTab('geolayout')">geo layout</div>
+</div>
+
+<!-- ══ DISASM ══════════════════════════════════════════════════════════════ -->
+<div class="tab-content active" id="tab-disasm">
+  <div class="workspace">
+    <div class="pane" style="max-width:42%">
+      <div class="pane-hdr"><div class="dot"></div> raw hex input</div>
+      <div class="ctrls">
+        <label>base addr</label>
+        <input type="text" id="baseAddr" value="80246000" maxlength="10" style="width:106px">
+        <button class="btn" onclick="disassemble()">disasm</button>
+        <button class="btn sec" onclick="clearAll()">clear</button>
+      </div>
+      <div class="ex-strip">
+        <label>examples &rsaquo;</label>
+        <button class="btn sec" style="padding:2px 9px;font-size:13px" onclick="loadEx('prologue')">prologue</button>
+        <button class="btn sec" style="padding:2px 9px;font-size:13px" onclick="loadEx('branch')">branch loop</button>
+        <button class="btn sec" style="padding:2px 9px;font-size:13px" onclick="loadEx('mario')">mario physics</button>
+      </div>
+      <textarea id="hexInput" placeholder="paste raw hex bytes here...&#10;&#10;  27BDFFE0 AFBF001C&#10;  or continuous: 27BDFFE0AFBF001C&#10;&#10;4 bytes = 1 instruction"></textarea>
+    </div>
+    <div class="pane">
+      <div class="pane-hdr"><div class="dot g"></div> mips assembly <span style="margin-left:auto;font-size:12px;color:var(--dim)">click addr or branch to jump</span></div>
+      <div class="out-area" id="output">
+        <div style="padding:30px 16px;color:var(--dim);font-size:14px;line-height:2;font-style:italic;font-family:'IM Fell English',serif">
+          // awaiting input...<br>
+          // SM64 uses MIPS R4300i (MIPS III ISA)<br>
+          // big-endian 32-bit words
+        </div>
+      </div>
+      <div class="stats" id="stats" style="display:none">
+        instructions: <span id="sCnt">0</span> &nbsp;&middot;&nbsp;
+        errors: <span id="sErr">0</span> &nbsp;&middot;&nbsp;
+        branches: <span id="sBr">0</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══ ROM LOADER ══════════════════════════════════════════════════════════ -->
+<div class="tab-content" id="tab-rom">
+  <div class="pane-hdr"><div class="dot y"></div> rom file loader</div>
+  <div id="romInfoBar" class="rom-info" style="display:none">
+    <div class="rf"><span class="k">file</span><span class="v" id="ri-name"></span></div>
+    <div class="rf"><span class="k">size</span><span class="v" id="ri-size"></span></div>
+    <div class="rf"><span class="k">format</span><span class="v" id="ri-fmt"></span></div>
+    <div class="rf"><span class="k">crc1</span><span class="v" id="ri-crc1"></span></div>
+    <div class="rf"><span class="k">crc2</span><span class="v" id="ri-crc2"></span></div>
+    <div class="rf"><span class="k">title</span><span class="v" id="ri-title"></span></div>
+  </div>
+  <div class="ctrls" id="romGoBar" style="display:none">
+    <label>rom offset</label>
+    <input type="text" id="romOffset" value="1000" style="width:88px">
+    <label>length (bytes)</label>
+    <input type="text" id="romLen" value="100" style="width:70px">
+    <label>vaddr</label>
+    <input type="text" id="romVaddr" value="80246000" style="width:106px">
+    <button class="btn" onclick="disasmFromRom()">disassemble</button>
+    <button class="btn blu" onclick="loadRomIntoHex()">open in hex editor</button>
+  </div>
+  <div id="dropZone" class="drop-zone"
+       onclick="document.getElementById('romFile').click()"
+       ondragover="event.preventDefault();this.classList.add('drag')"
+       ondragleave="this.classList.remove('drag')"
+       ondrop="handleRomDrop(event)">
+    <div class="drop-icon">[ROM]</div>
+    <div class="drop-text">drop your ROM file here</div>
+    <div class="drop-sub">.z64 &middot; .n64 &middot; .v64 &mdash; or click to browse</div>
+    <input type="file" id="romFile" accept=".z64,.n64,.v64,.bin" style="display:none" onchange="loadRomFile(this.files[0])">
+  </div>
+</div>
+
+<!-- ══ ASM EDITOR ══════════════════════════════════════════════════════════ -->
+<div class="tab-content" id="tab-asmEdit">
+  <div class="workspace">
+    <div class="pane" style="max-width:50%">
+      <div class="pane-hdr"><div class="dot b"></div> assembly source</div>
+      <div class="ctrls">
+        <label>base addr</label>
+        <input type="text" id="asmBase" value="80246000" style="width:106px">
+        <button class="btn" onclick="assembleCode()">assemble</button>
+        <button class="btn sec" onclick="pullFromDisasm()">&larr; from disasm</button>
+      </div>
+      <textarea id="asmIn" spellcheck="false" placeholder="; MIPS assembly &mdash; one instruction per line&#10;; comments with ; or //&#10;&#10;addiu sp, sp, -0x20&#10;sw    ra, 0x1C(sp)&#10;jal   0x80246ABC&#10;nop"></textarea>
+    </div>
+    <div class="pane">
+      <div class="pane-hdr"><div class="dot g"></div> assembled output</div>
+      <div class="out-area" id="asmOut">
+        <div style="padding:30px 16px;color:var(--dim);font-size:14px;line-height:2;font-style:italic;font-family:'IM Fell English',serif">// write MIPS assembly on the left...</div>
+      </div>
+      <div class="hex-bar">
+        <button class="btn grn" onclick="copyAsmHex()">copy hex</button>
+        <button class="btn blu" onclick="pushToHexEdit()">push to hex editor</button>
+        <span id="asmStat" style="font-size:13px;color:var(--muted2);margin-left:6px"></span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══ HEX EDITOR ══════════════════════════════════════════════════════════ -->
+<div class="tab-content" id="tab-hexEdit">
+  <div class="pane-hdr"><div class="dot b"></div> hex editor</div>
+  <div class="ctrls">
+    <label>jump to</label>
+    <input type="text" id="hexJumpIn" placeholder="0x100" style="width:88px">
+    <button class="btn" onclick="hexJump()">go</button>
+    <button class="btn sec" onclick="hexClear()">clear</button>
+    <button class="btn grn" onclick="hexCopyAll()">copy all</button>
+    <button class="btn blu" onclick="hexDisasm()">disasm selection</button>
+    <span id="hexSelInfo" style="font-size:13px;color:var(--muted2);margin-left:6px"></span>
+  </div>
+  <div class="hex-editor" id="hexView">
+    <div style="color:var(--dim);padding:20px 0;font-size:14px;font-style:italic;font-family:'IM Fell English',serif">// no data loaded &mdash; use the rom loader or paste hex below</div>
+  </div>
+  <div class="hex-bar">
+    <label>patch byte:</label>
+    <input type="text" id="hexPatch" placeholder="FF" style="width:48px;text-transform:uppercase" maxlength="2">
+    <button class="btn" onclick="doPatch()">patch</button>
+    <span style="color:var(--border2);margin:0 4px">&middot;</span>
+    <label>load hex:</label>
+    <input type="text" id="hexRaw" placeholder="paste hex bytes to load..." style="flex:1;width:auto">
+    <button class="btn sec" onclick="loadHexRaw()">load</button>
+  </div>
+</div>
+
+<!-- ══ FUNCTIONS ═══════════════════════════════════════════════════════════ -->
+<div class="tab-content" id="tab-funcs">
+  <div class="pane-hdr"><div class="dot y"></div> function addresses <span style="margin-left:auto;font-size:12px;color:var(--dim)">double-click label to rename</span></div>
+  <div class="ctrls">
+    <label>search</label>
+    <input type="text" id="fnSearch" oninput="renderFns()" placeholder="name or address..." style="width:158px">
+    <button class="btn" onclick="autoDetectFns()">auto-detect</button>
+    <button class="btn sec" onclick="clearFns()">clear</button>
+    <button class="btn grn" onclick="exportFns()">export</button>
+  </div>
+  <div class="fn-list" id="fnList">
+    <div style="padding:30px 16px;color:var(--dim);font-size:14px;line-height:2;font-style:italic;font-family:'IM Fell English',serif">
+      // no functions yet &mdash; click auto-detect to scan for jal targets
+    </div>
+  </div>
+  <div class="fn-add">
+    <label>add:</label>
+    <input type="text" id="fnAddr" placeholder="80246ABC" style="width:108px" maxlength="10">
+    <input type="text" id="fnName" placeholder="func_name" style="width:138px">
+    <button class="btn" onclick="addFn()">add</button>
+  </div>
+</div>
+
+<!-- ══ LEVEL SCRIPT EDITOR ═══════════════════════════════════════════════ -->
+<div class="tab-content" id="tab-lvlscript">
+  <div class="pane-hdr"><div class="dot y"></div> level script editor</div>
+  <div class="coming-soon">
+    <div class="cs-title">Level Script Editor</div>
+    <div class="cs-sub">coming soon</div>
+    <div class="cs-deco">parse and edit SM64 level scripts &middot; cmd 0x00 &ndash; 0x3E &middot; visual block editor</div>
+  </div>
+</div>
+
+<!-- ══ GEO LAYOUT EDITOR ══════════════════════════════════════════════════ -->
+<div class="tab-content" id="tab-geolayout">
+  <div class="pane-hdr"><div class="dot b"></div> geo layout editor</div>
+  <div class="coming-soon">
+    <div class="cs-title">Geo Layout Editor</div>
+    <div class="cs-sub">coming soon</div>
+    <div class="cs-deco">parse and visualize SM64 geo display lists &middot; node tree view &middot; layer &amp; shadow control</div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+'use strict';
+
+// ── State ────────────────────────────────────────────────────────
+let romData = null;
+let hexBytes = [];
+let hexSel = -1;
+let functions = [];
+let lastWords = [], lastBase = 0;
+
+// ── Function Map — loaded from functionMapReduced.txt ────────────
+const KNOWN_FUNCS = {}; // addr (number) -> { name, cat, args }
+
+async function loadFunctionMap() {
+  try {
+    const res = await fetch('functionMapReduced.txt');
+    if (!res.ok) throw new Error('not found');
+    const text = await res.text();
+    // Parse lines of the form:   "XXXXXXXX": "name",
+    const re = /"([0-9a-fA-F]{8})":\s*"([^"]+)"/g;
+    let match, count = 0;
+    while ((match = re.exec(text)) !== null) {
+      const addr = parseInt(match[1], 16) >>> 0;
+      const name = match[2];
+      KNOWN_FUNCS[addr] = { name, cat: '', args: '' };
+      count++;
+    }
+    // Populate functions list
+    Object.entries(KNOWN_FUNCS).forEach(([addr, info]) => {
+      const a = parseInt(addr) >>> 0;
+      if (!functions.find(f => f.addr === a)) {
+        functions.push({ addr: a, name: info.name, size: 0, desc: '', cat: '', builtin: true });
+      }
+    });
+    functions.sort((a, b) => a.addr - b.addr);
+    renderFns();
+    toast(`loaded ${count} functions from map`);
+  } catch(e) {
+    toast('functionMapReduced.txt not found — place it next to the html file');
+  }
+}
+
+loadFunctionMap();
+
+// Lookup function by address
+function lookupFn(addr){
+  const a = addr >>> 0;
+  const known = KNOWN_FUNCS[a];
+  if (known) return known;
+  const f = functions.find(f => f.addr === a);
+  if (f) return { name: f.name, args: f.desc || '', cat: f.cat || '' };
+  return null;
+}
+
+// ── Tooltip ──────────────────────────────────────────────────────
+let _tooltip = null;
+function showTooltip(e, addr){
+  hideTooltip();
+  const info = lookupFn(addr);
+  if(!info) return;
+  const el = document.createElement('div');
+  el.className = 'fn-tooltip';
+  const catStr = info.cat ? `<div class="tt-cat">${info.cat}</div>` : '';
+  const argsStr = info.args ? `<div class="tt-args">${info.args}</div>` : '';
+  el.innerHTML = `<div class="tt-name">${info.name}</div>${argsStr}${catStr}`;
+  document.body.appendChild(el);
+  _tooltip = el;
+  posTooltip(e);
+}
+function posTooltip(e){
+  if(!_tooltip) return;
+  const x = Math.min(e.clientX+14, window.innerWidth-_tooltip.offsetWidth-8);
+  const y = Math.min(e.clientY+14, window.innerHeight-_tooltip.offsetHeight-8);
+  _tooltip.style.left = x+'px';
+  _tooltip.style.top  = y+'px';
+}
+function hideTooltip(){if(_tooltip){_tooltip.remove();_tooltip=null;}}
+document.addEventListener('mousemove', posTooltip);
+document.addEventListener('mouseleave', hideTooltip);
+
+// ── Tabs ─────────────────────────────────────────────────────────
+function switchTab(id) {
+  const ids = ['disasm','rom','asmEdit','hexEdit','funcs','lvlscript','geolayout'];
+  document.querySelectorAll('.tab').forEach((t,i) => t.classList.toggle('active', ids[i]===id));
+  document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
+  document.getElementById('tab-'+id).classList.add('active');
+}
+
+// ── MIPS core ────────────────────────────────────────────────────
+const REGS=['r0','at','v0','v1','a0','a1','a2','a3','t0','t1','t2','t3','t4','t5','t6','t7','s0','s1','s2','s3','s4','s5','s6','s7','t8','t9','k0','k1','gp','sp','fp','ra'];
+const RMAP={}; REGS.forEach((n,i)=>RMAP[n]=i); RMAP['zero']=0;
+
+function rn(n){return `<span class="rg">${REGS[n]}</span>`;}
+function frn(n){return `<span class="rg">f${n}</span>`;}
+function hi(n,s=true){
+  let v=s?(n<<16>>16):n;
+  let str=s&&v<0?'-0x'+(-v).toString(16).toUpperCase():'0x'+(v>>>0).toString(16).toUpperCase();
+  return `<span class="im">${str}</span>`;
+}
+function brt(imm16,pc){
+  let t=(pc+4+((imm16<<16>>16)*4))>>>0;
+  let ts=t.toString(16).toUpperCase().padStart(8,'0');
+  return `<span class="lref" onclick="jumpTo(0x${ts})" onmouseenter="showTooltip(event,0x${ts})" onmouseleave="hideTooltip()">0x${ts}</span>`;
+}
+function j26(w,pc){
+  let t=((pc&0xF0000000)|((w&0x3FFFFFF)<<2))>>>0;
+  let ts=t.toString(16).toUpperCase().padStart(8,'0');
+  return `<span class="lref" onclick="jumpTo(0x${ts})" onmouseenter="showTooltip(event,0x${ts})" onmouseleave="hideTooltip()">0x${ts}</span>`;
+}
+
+function dw(word,pc){
+  const op=(word>>>26)&0x3F,rs=(word>>>21)&0x1F,rt=(word>>>16)&0x1F,
+        rd=(word>>>11)&0x1F,sa=(word>>>6)&0x1F,fn=word&0x3F,imm=word&0xFFFF;
+  const m=s=>`<span class="mn">${s}</span>`;
+  const p=s=>`<span class="psd">${s}</span>`;
+  if(op===0){
+    switch(fn){
+      case 0x00:return word===0?p('nop'):`${m('sll')} ${rn(rd)}, ${rn(rt)}, ${hi(sa,false)}`;
+      case 0x02:return`${m('srl')} ${rn(rd)}, ${rn(rt)}, ${hi(sa,false)}`;
+      case 0x03:return`${m('sra')} ${rn(rd)}, ${rn(rt)}, ${hi(sa,false)}`;
+      case 0x04:return`${m('sllv')} ${rn(rd)}, ${rn(rt)}, ${rn(rs)}`;
+      case 0x06:return`${m('srlv')} ${rn(rd)}, ${rn(rt)}, ${rn(rs)}`;
+      case 0x07:return`${m('srav')} ${rn(rd)}, ${rn(rt)}, ${rn(rs)}`;
+      case 0x08:return`${m('jr')} ${rn(rs)}`;
+      case 0x09:return rd===31?`${p('jalr')} ${rn(rs)}`:`${m('jalr')} ${rn(rd)}, ${rn(rs)}`;
+      case 0x0C:return m('syscall');
+      case 0x0D:return m('break');
+      case 0x0F:return m('sync');
+      case 0x10:return`${m('mfhi')} ${rn(rd)}`;
+      case 0x11:return`${m('mthi')} ${rn(rs)}`;
+      case 0x12:return`${m('mflo')} ${rn(rd)}`;
+      case 0x13:return`${m('mtlo')} ${rn(rs)}`;
+      case 0x14:return`${m('dsllv')} ${rn(rd)}, ${rn(rt)}, ${rn(rs)}`;
+      case 0x16:return`${m('dsrlv')} ${rn(rd)}, ${rn(rt)}, ${rn(rs)}`;
+      case 0x17:return`${m('dsrav')} ${rn(rd)}, ${rn(rt)}, ${rn(rs)}`;
+      case 0x18:return`${m('mult')} ${rn(rs)}, ${rn(rt)}`;
+      case 0x19:return`${m('multu')} ${rn(rs)}, ${rn(rt)}`;
+      case 0x1A:return`${m('div')} ${rn(rs)}, ${rn(rt)}`;
+      case 0x1B:return`${m('divu')} ${rn(rs)}, ${rn(rt)}`;
+      case 0x1C:return`${m('dmult')} ${rn(rs)}, ${rn(rt)}`;
+      case 0x1D:return`${m('dmultu')} ${rn(rs)}, ${rn(rt)}`;
+      case 0x1E:return`${m('ddiv')} ${rn(rs)}, ${rn(rt)}`;
+      case 0x1F:return`${m('ddivu')} ${rn(rs)}, ${rn(rt)}`;
+      case 0x20:return rs===0?`${p('move')} ${rn(rd)}, ${rn(rt)}`:`${m('add')} ${rn(rd)}, ${rn(rs)}, ${rn(rt)}`;
+      case 0x21:return rs===0?`${p('move')} ${rn(rd)}, ${rn(rt)}`:`${m('addu')} ${rn(rd)}, ${rn(rs)}, ${rn(rt)}`;
+      case 0x22:return`${m('sub')} ${rn(rd)}, ${rn(rs)}, ${rn(rt)}`;
+      case 0x23:return`${m('subu')} ${rn(rd)}, ${rn(rs)}, ${rn(rt)}`;
+      case 0x24:return`${m('and')} ${rn(rd)}, ${rn(rs)}, ${rn(rt)}`;
+      case 0x25:return rs===0&&rt===0?`${p('clear')} ${rn(rd)}`:rs===0?`${p('move')} ${rn(rd)}, ${rn(rt)}`:`${m('or')} ${rn(rd)}, ${rn(rs)}, ${rn(rt)}`;
+      case 0x26:return`${m('xor')} ${rn(rd)}, ${rn(rs)}, ${rn(rt)}`;
+      case 0x27:return rs===0?`${p('not')} ${rn(rd)}, ${rn(rt)}`:`${m('nor')} ${rn(rd)}, ${rn(rs)}, ${rn(rt)}`;
+      case 0x2A:return`${m('slt')} ${rn(rd)}, ${rn(rs)}, ${rn(rt)}`;
+      case 0x2B:return`${m('sltu')} ${rn(rd)}, ${rn(rs)}, ${rn(rt)}`;
+      case 0x2C:return`${m('dadd')} ${rn(rd)}, ${rn(rs)}, ${rn(rt)}`;
+      case 0x2D:return`${m('daddu')} ${rn(rd)}, ${rn(rs)}, ${rn(rt)}`;
+      case 0x2E:return`${m('dsub')} ${rn(rd)}, ${rn(rs)}, ${rn(rt)}`;
+      case 0x2F:return`${m('dsubu')} ${rn(rd)}, ${rn(rs)}, ${rn(rt)}`;
+      case 0x30:return`${m('tge')} ${rn(rs)}, ${rn(rt)}`;
+      case 0x31:return`${m('tgeu')} ${rn(rs)}, ${rn(rt)}`;
+      case 0x32:return`${m('tlt')} ${rn(rs)}, ${rn(rt)}`;
+      case 0x33:return`${m('tltu')} ${rn(rs)}, ${rn(rt)}`;
+      case 0x34:return`${m('teq')} ${rn(rs)}, ${rn(rt)}`;
+      case 0x36:return`${m('tne')} ${rn(rs)}, ${rn(rt)}`;
+      case 0x38:return`${m('dsll')} ${rn(rd)}, ${rn(rt)}, ${hi(sa,false)}`;
+      case 0x3A:return`${m('dsrl')} ${rn(rd)}, ${rn(rt)}, ${hi(sa,false)}`;
+      case 0x3B:return`${m('dsra')} ${rn(rd)}, ${rn(rt)}, ${hi(sa,false)}`;
+      case 0x3C:return`${m('dsll32')} ${rn(rd)}, ${rn(rt)}, ${hi(sa,false)}`;
+      case 0x3E:return`${m('dsrl32')} ${rn(rd)}, ${rn(rt)}, ${hi(sa,false)}`;
+      case 0x3F:return`${m('dsra32')} ${rn(rd)}, ${rn(rt)}, ${hi(sa,false)}`;
+    }return null;
+  }
+  if(op===1){const b={0x00:'bltz',0x01:'bgez',0x02:'bltzl',0x03:'bgezl',0x10:'bltzal',0x11:'bgezal',0x12:'bltzall',0x13:'bgezall'};return b[rt]?`${m(b[rt])} ${rn(rs)}, ${brt(imm,pc)}`:null;}
+  if(op===0x10){
+    if(rs===0)return`${m('mfc0')} ${rn(rt)}, <span class="rg">c${rd}</span>`;
+    if(rs===4)return`${m('mtc0')} ${rn(rt)}, <span class="rg">c${rd}</span>`;
+    if(rs===0x10&&fn===0x18)return m('eret');
+    return null;
+  }
+  if(op===0x11){
+    if(rs===0x00)return`${m('mfc1')} ${rn(rt)}, ${frn(rd)}`;
+    if(rs===0x04)return`${m('mtc1')} ${rn(rt)}, ${frn(rd)}`;
+    if(rs===0x08){const bc={0:'bc1f',1:'bc1t',2:'bc1fl',3:'bc1tl'};return bc[rt]?`${m(bc[rt])} ${brt(imm,pc)}`:null;}
+    const fmtN={0x10:'s',0x11:'d',0x14:'w',0x15:'l'},fmt=fmtN[rs];
+    if(fmt){
+      const fo={0x00:'add',0x01:'sub',0x02:'mul',0x03:'div',0x04:'sqrt',0x05:'abs',0x06:'mov',0x07:'neg',0x08:'round.l',0x09:'trunc.l',0x0A:'ceil.l',0x0B:'floor.l',0x0C:'round.w',0x0D:'trunc.w',0x0E:'ceil.w',0x0F:'floor.w',0x20:'cvt.s',0x21:'cvt.d',0x24:'cvt.w',0x25:'cvt.l',0x30:'c.f',0x31:'c.un',0x32:'c.eq',0x33:'c.ueq',0x34:'c.olt',0x35:'c.ult',0x36:'c.ole',0x37:'c.ule',0x3C:'c.lt',0x3D:'c.nge',0x3E:'c.le',0x3F:'c.ngt'};
+      const fn2=fo[fn];
+      if(fn2){const fd=(word>>6)&0x1F,fs=(word>>11)&0x1F,ft2=(word>>16)&0x1F;
+        if(fn>=0x04&&fn<=0x07)return`${m(fn2+'.'+fmt)} ${frn(fd)}, ${frn(fs)}`;
+        if(fn>=0x30)return`${m(fn2+'.'+fmt)} ${frn(fs)}, ${frn(ft2)}`;
+        if(fn>=0x20)return`${m(fn2+'.'+fmt)} ${frn(fd)}, ${frn(fs)}`;
+        return`${m(fn2+'.'+fmt)} ${frn(fd)}, ${frn(fs)}, ${frn(ft2)}`;
+      }
+    }return null;
+  }
+  switch(op){
+    case 0x02:return`${m('j')} ${j26(word,pc)}`;
+    case 0x03:return`${m('jal')} ${j26(word,pc)}`;
+    case 0x04:return rs===rt?`${p('b')} ${brt(imm,pc)}`:`${m('beq')} ${rn(rs)}, ${rn(rt)}, ${brt(imm,pc)}`;
+    case 0x05:return rs===0&&rt===0?`${p('b')} ${brt(imm,pc)}`:`${m('bne')} ${rn(rs)}, ${rn(rt)}, ${brt(imm,pc)}`;
+    case 0x06:return`${m('blez')} ${rn(rs)}, ${brt(imm,pc)}`;
+    case 0x07:return`${m('bgtz')} ${rn(rs)}, ${brt(imm,pc)}`;
+    case 0x08:return rs===0?`${p('li')} ${rn(rt)}, ${hi(imm)}`:`${m('addi')} ${rn(rt)}, ${rn(rs)}, ${hi(imm)}`;
+    case 0x09:return rs===0?`${p('li')} ${rn(rt)}, ${hi(imm)}`:`${m('addiu')} ${rn(rt)}, ${rn(rs)}, ${hi(imm)}`;
+    case 0x0A:return`${m('slti')} ${rn(rt)}, ${rn(rs)}, ${hi(imm)}`;
+    case 0x0B:return`${m('sltiu')} ${rn(rt)}, ${rn(rs)}, ${hi(imm,false)}`;
+    case 0x0C:return`${m('andi')} ${rn(rt)}, ${rn(rs)}, ${hi(imm,false)}`;
+    case 0x0D:return`${m('ori')} ${rn(rt)}, ${rn(rs)}, ${hi(imm,false)}`;
+    case 0x0E:return`${m('xori')} ${rn(rt)}, ${rn(rs)}, ${hi(imm,false)}`;
+    case 0x0F:return`${m('lui')} ${rn(rt)}, ${hi(imm,false)}`;
+    case 0x14:return`${m('beql')} ${rn(rs)}, ${rn(rt)}, ${brt(imm,pc)}`;
+    case 0x15:return`${m('bnel')} ${rn(rs)}, ${rn(rt)}, ${brt(imm,pc)}`;
+    case 0x16:return`${m('blezl')} ${rn(rs)}, ${brt(imm,pc)}`;
+    case 0x17:return`${m('bgtzl')} ${rn(rs)}, ${brt(imm,pc)}`;
+    case 0x18:return`${m('daddi')} ${rn(rt)}, ${rn(rs)}, ${hi(imm)}`;
+    case 0x19:return`${m('daddiu')} ${rn(rt)}, ${rn(rs)}, ${hi(imm)}`;
+    case 0x1A:return`${m('ldl')} ${rn(rt)}, ${hi(imm)}(${rn(rs)})`;
+    case 0x1B:return`${m('ldr')} ${rn(rt)}, ${hi(imm)}(${rn(rs)})`;
+    case 0x20:return`${m('lb')} ${rn(rt)}, ${hi(imm)}(${rn(rs)})`;
+    case 0x21:return`${m('lh')} ${rn(rt)}, ${hi(imm)}(${rn(rs)})`;
+    case 0x22:return`${m('lwl')} ${rn(rt)}, ${hi(imm)}(${rn(rs)})`;
+    case 0x23:return`${m('lw')} ${rn(rt)}, ${hi(imm)}(${rn(rs)})`;
+    case 0x24:return`${m('lbu')} ${rn(rt)}, ${hi(imm)}(${rn(rs)})`;
+    case 0x25:return`${m('lhu')} ${rn(rt)}, ${hi(imm)}(${rn(rs)})`;
+    case 0x26:return`${m('lwr')} ${rn(rt)}, ${hi(imm)}(${rn(rs)})`;
+    case 0x27:return`${m('lwu')} ${rn(rt)}, ${hi(imm)}(${rn(rs)})`;
+    case 0x28:return`${m('sb')} ${rn(rt)}, ${hi(imm)}(${rn(rs)})`;
+    case 0x29:return`${m('sh')} ${rn(rt)}, ${hi(imm)}(${rn(rs)})`;
+    case 0x2A:return`${m('swl')} ${rn(rt)}, ${hi(imm)}(${rn(rs)})`;
+    case 0x2B:return`${m('sw')} ${rn(rt)}, ${hi(imm)}(${rn(rs)})`;
+    case 0x2C:return`${m('sdl')} ${rn(rt)}, ${hi(imm)}(${rn(rs)})`;
+    case 0x2D:return`${m('sdr')} ${rn(rt)}, ${hi(imm)}(${rn(rs)})`;
+    case 0x2E:return`${m('swr')} ${rn(rt)}, ${hi(imm)}(${rn(rs)})`;
+    case 0x2F:return`${m('cache')} ${hi(rt,false)}, ${hi(imm)}(${rn(rs)})`;
+    case 0x30:return`${m('ll')} ${rn(rt)}, ${hi(imm)}(${rn(rs)})`;
+    case 0x31:return`${m('lwc1')} ${frn(rt)}, ${hi(imm)}(${rn(rs)})`;
+    case 0x35:return`${m('ldc1')} ${frn(rt)}, ${hi(imm)}(${rn(rs)})`;
+    case 0x37:return`${m('ld')} ${rn(rt)}, ${hi(imm)}(${rn(rs)})`;
+    case 0x38:return`${m('sc')} ${rn(rt)}, ${hi(imm)}(${rn(rs)})`;
+    case 0x39:return`${m('swc1')} ${frn(rt)}, ${hi(imm)}(${rn(rs)})`;
+    case 0x3D:return`${m('sdc1')} ${frn(rt)}, ${hi(imm)}(${rn(rs)})`;
+    case 0x3F:return`${m('sd')} ${rn(rt)}, ${hi(imm)}(${rn(rs)})`;
+  }
+  return null;
+}
+
+// ── Disasm tab ────────────────────────────────────────────────────
+function parseHexStr(s){
+  const c=s.replace(/0x/gi,'').replace(/[^0-9a-fA-F]/g,'');
+  const w=[];for(let i=0;i+8<=c.length;i+=8)w.push(parseInt(c.slice(i,i+8),16));return w;
+}
+
+function renderDisasm(words,base,outEl){
+  let html='',ec=0,bc=0;
+  lastWords=words; lastBase=base;
+  words.forEach((word,i)=>{
+    const pc=(base+i*4)>>>0;
+    const as=pc.toString(16).toUpperCase().padStart(8,'0');
+    const hs=word.toString(16).toUpperCase().padStart(8,'0');
+    let asm=dw(word,pc);
+    const op=(word>>>26)&0x3F;
+    if([2,3,4,5,6,7,0x14,0x15,0x16,0x17].includes(op)||(op===0&&[8,9].includes(word&0x3F))||op===1)bc++;
+    if(asm===null){asm=`<span class="err">/* unknown: ${hs} */</span>`;ec++;}
+    const fnEntry=functions.find(f=>f.addr===pc);
+    if(fnEntry)html+=`<div class="fn-label-row">&#10022; ${fnEntry.name}</div>`;
+    html+=`<div class="irow" id="row-${as}"><span class="addr" onclick="jumpTo(0x${as})">${as}:</span><span class="hcol">${hs}</span><span class="acol">${asm}</span></div>`;
+  });
+  outEl.innerHTML=html;
+  return{ec,bc,cnt:words.length};
+}
+
+function disassemble(){
+  const base=parseInt(document.getElementById('baseAddr').value.replace(/0x/i,''),16)||0x80246000;
+  const words=parseHexStr(document.getElementById('hexInput').value);
+  const out=document.getElementById('output');
+  if(!words.length){out.innerHTML=`<div class="err" style="padding:18px;font-family:'IM Fell English',serif;font-style:italic">// no valid hex data found.</div>`;document.getElementById('stats').style.display='none';return;}
+  const s=renderDisasm(words,base,out);
+  document.getElementById('sCnt').textContent=s.cnt;
+  document.getElementById('sErr').textContent=s.ec;
+  document.getElementById('sBr').textContent=s.bc;
+  document.getElementById('stats').style.display='flex';
+}
+
+function clearAll(){
+  document.getElementById('hexInput').value='';
+  document.getElementById('output').innerHTML=`<div style="padding:30px 16px;color:var(--dim);font-size:14px;font-style:italic;font-family:'IM Fell English',serif">// cleared.</div>`;
+  document.getElementById('stats').style.display='none';
+  lastWords=[];
+}
+
+function jumpTo(addr){
+  const hex=addr.toString(16).toUpperCase().padStart(8,'0');
+  const row=document.getElementById('row-'+hex);
+  if(row){switchTab('disasm');row.scrollIntoView({behavior:'smooth',block:'center'});row.classList.add('hi');setTimeout(()=>row.classList.remove('hi'),1500);return;}
+  toast(`0x${hex} not in current view`);
+}
+
+const EXMAP={
+  prologue:'27BDFFE0 AFBF001C AFBE0018 AFB70014 AFB60010 AFB50014 AFB40010 AFB3000C AFB20008 AFB10004 AFB00000 03A0F025',
+  branch:  '8C820000 10400008 00000000 24420001 2C430010 1460FFFA 00000000 03E00008 00000000',
+  mario:   '3C018016 8C22A5D0 14400005 00000000 3C018016 8C22A5C8 3C038016 8C63A5D0 00431821 AC62A5D0 03E00008 00000000'
+};
+function loadEx(k){document.getElementById('hexInput').value=EXMAP[k];disassemble();}
+document.getElementById('hexInput').addEventListener('paste',()=>setTimeout(disassemble,60));
+
+// ── ROM Loader ────────────────────────────────────────────────────
+function handleRomDrop(e){e.preventDefault();document.getElementById('dropZone').classList.remove('drag');if(e.dataTransfer.files[0])loadRomFile(e.dataTransfer.files[0]);}
+
+function loadRomFile(file){
+  if(!file)return;
+  new Promise(res=>{const r=new FileReader();r.onload=e=>res(e.target.result);r.readAsArrayBuffer(file);}).then(buf=>{
+    romData=new Uint8Array(buf);
+    const magic=((romData[0]<<24)|(romData[1]<<16)|(romData[2]<<8)|romData[3])>>>0;
+    let fmt='Unknown';
+    if(magic===0x80371240)fmt='Z64 (Big-endian)';
+    else if(magic===0x37804012){fmt='V64 \u2192 normalized';for(let i=0;i<romData.length-1;i+=2){const t=romData[i];romData[i]=romData[i+1];romData[i+1]=t;}}
+    else if(magic===0x40123780){fmt='N64 \u2192 normalized';for(let i=0;i<romData.length-3;i+=4){const a=romData[i],b=romData[i+1];romData[i]=romData[i+3];romData[i+1]=romData[i+2];romData[i+2]=b;romData[i+3]=a;}}
+    const crc1=((romData[0x10]<<24)|(romData[0x11]<<16)|(romData[0x12]<<8)|romData[0x13])>>>0;
+    const crc2=((romData[0x14]<<24)|(romData[0x15]<<16)|(romData[0x16]<<8)|romData[0x17])>>>0;
+    let title='';for(let i=0x20;i<0x34;i++){const c=romData[i];if(c>0x1f&&c<0x7f)title+=String.fromCharCode(c);}
+    document.getElementById('ri-name').textContent=file.name;
+    document.getElementById('ri-size').textContent=(romData.length/1048576).toFixed(2)+' MB';
+    document.getElementById('ri-fmt').textContent=fmt;
+    document.getElementById('ri-crc1').textContent=crc1.toString(16).toUpperCase().padStart(8,'0');
+    document.getElementById('ri-crc2').textContent=crc2.toString(16).toUpperCase().padStart(8,'0');
+    document.getElementById('ri-title').textContent=title.trim();
+    document.getElementById('romInfoBar').style.display='grid';
+    document.getElementById('romGoBar').style.display='flex';
+    document.getElementById('dropZone').style.display='none';
+    document.getElementById('romStatus').textContent='rom: '+file.name.toLowerCase();
+    document.getElementById('romStatus').className='rom-status loaded';
+    toast('rom loaded: '+file.name);
+  });
+}
+
+function disasmFromRom(){
+  if(!romData){toast('no rom loaded');return;}
+  const off=parseInt(document.getElementById('romOffset').value,16)||0;
+  const len=parseInt(document.getElementById('romLen').value,16)||256;
+  const va=parseInt(document.getElementById('romVaddr').value,16)||0x80246000;
+  const b=romData.slice(off,off+len);
+  let h='';
+  for(let i=0;i+3<b.length;i+=4)h+=((b[i]<<24)|(b[i+1]<<16)|(b[i+2]<<8)|b[i+3]).toString(16).toUpperCase().padStart(8,'0')+' ';
+  document.getElementById('hexInput').value=h.trim();
+  document.getElementById('baseAddr').value=va.toString(16).toUpperCase();
+  switchTab('disasm');disassemble();
+}
+
+function loadRomIntoHex(){
+  if(!romData){toast('no rom loaded');return;}
+  const off=parseInt(document.getElementById('romOffset').value,16)||0;
+  const len=parseInt(document.getElementById('romLen').value,16)||256;
+  hexBytes=Array.from(romData.slice(off,off+len));
+  hexSel=-1;renderHex();switchTab('hexEdit');
+}
+
+// ── ASM Editor ───────────────────────────────────────────────────
+function preg(s){s=s.replace(/,/g,'').trim();const v=RMAP[s];return v!==undefined?v:/^r?\d+$/.test(s)?parseInt(s.replace('r','')):-1;}
+function pimm(s){s=s.replace(/,/g,'').trim();return s.startsWith('0x')||s.startsWith('-0x')?parseInt(s,16):parseInt(s,10);}
+
+function assemble1(line,pc){
+  line=line.replace(/[;\/].*/,'').trim();if(!line)return null;
+  const t=line.split(/[\s,]+/).filter(Boolean);if(!t.length)return null;
+  const op=t[0].toLowerCase();
+  const E=w=>w>>>0;
+  const reg=i=>preg(t[i]||'r0');
+  const imm=i=>pimm(t[i]||'0');
+  if(op==='nop')return 0;
+  if(op==='move'){return E((0x25|(reg(1)<<11)|(reg(2)<<21)));}
+  if(op==='li'){const v=imm(2);return E((0x09|(reg(1)<<16))|(v&0xFFFF));}
+  if(op==='b'){const off=(imm(1)-pc-4)/4;return E((0x04<<26)|(off&0xFFFF));}
+  if(op==='not'){return E((0x27|(reg(1)<<11)|(reg(2)<<16)));}
+  const Rt=(f,rd,rs,rt,sa=0)=>E((rs<<21)|(rt<<16)|(rd<<11)|(sa<<6)|f);
+  const It=(o,rs,rt,i16)=>E((o<<26)|(rs<<21)|(rt<<16)|(i16&0xFFFF));
+  const ROP={sll:0,srl:2,sra:3,sllv:4,srlv:6,srav:7,jr:8,jalr:9,mfhi:0x10,mthi:0x11,mflo:0x12,mtlo:0x13,mult:0x18,multu:0x19,div:0x1A,divu:0x1B,add:0x20,addu:0x21,sub:0x22,subu:0x23,and:0x24,or:0x25,xor:0x26,nor:0x27,slt:0x2A,sltu:0x2B};
+  if(ROP[op]!==undefined){
+    const f=ROP[op];
+    if(op==='jr')return Rt(f,0,reg(1),0);
+    if(op==='jalr')return t.length>=3?Rt(f,reg(1),reg(2),0):Rt(f,31,reg(1),0);
+    if(op==='mfhi'||op==='mflo')return Rt(f,reg(1),0,0);
+    if(op==='mthi'||op==='mtlo')return Rt(f,0,reg(1),0);
+    if(op==='mult'||op==='multu'||op==='div'||op==='divu')return Rt(f,0,reg(1),reg(2));
+    if(op==='sll'||op==='srl'||op==='sra')return Rt(f,reg(1),0,reg(2),imm(3));
+    if(op==='sllv'||op==='srlv'||op==='srav')return Rt(f,reg(1),reg(3),reg(2));
+    return Rt(f,reg(1),reg(2),reg(3));
+  }
+  const IOP={addi:8,addiu:9,slti:0xA,sltiu:0xB,andi:0xC,ori:0xD,xori:0xE,lui:0xF,beq:4,bne:5,blez:6,bgtz:7,beql:0x14,bnel:0x15,blezl:0x16,bgtzl:0x17,daddi:0x18,daddiu:0x19,lb:0x20,lh:0x21,lwl:0x22,lw:0x23,lbu:0x24,lhu:0x25,lwr:0x26,lwu:0x27,sb:0x28,sh:0x29,swl:0x2A,sw:0x2B,sdl:0x2C,sdr:0x2D,swr:0x2E,ll:0x30,ld:0x37,sc:0x38,sd:0x3F,lwc1:0x31,ldc1:0x35,swc1:0x39,sdc1:0x3D};
+  if(IOP[op]!==undefined){
+    const o=IOP[op];
+    if(op==='lui')return It(o,0,reg(1),imm(2));
+    if(['beq','bne','beql','bnel'].includes(op)){return It(o,reg(1),reg(2),(imm(3)-pc-4)/4);}
+    if(['blez','bgtz','blezl','bgtzl'].includes(op)){return It(o,reg(1),0,(imm(2)-pc-4)/4);}
+    const last=t[t.length-1];
+    if(last&&last.includes('(')){const mm=last.match(/(-?0?x?[0-9a-fA-F]+)\((\w+)\)/);if(mm)return It(o,preg(mm[2]),reg(1),pimm(mm[1]));}
+    return It(o,reg(1),reg(2),imm(3));
+  }
+  if(op==='j')return E((0x02<<26)|((imm(1)>>>2)&0x3FFFFFF));
+  if(op==='jal')return E((0x03<<26)|((imm(1)>>>2)&0x3FFFFFF));
+  if(op==='bltz'){return E((0x01<<26)|(reg(1)<<21)|((imm(2)-pc-4)/4&0xFFFF));}
+  if(op==='bgez'){return E((0x01<<26)|(reg(1)<<21)|(0x01<<16)|((imm(2)-pc-4)/4&0xFFFF));}
+  if(op==='syscall')return 0x0C;
+  if(op==='break')return 0x0D;
+  if(op==='sync')return 0x0F;
+  return null;
+}
+
+function assembleCode(){
+  const lines=document.getElementById('asmIn').value.split('\n');
+  const base=parseInt(document.getElementById('asmBase').value.replace(/0x/i,''),16)||0x80246000;
+  let html='',words=[],pc=base,ok=0,ec=0;
+  lines.forEach(line=>{
+    const clean=line.replace(/[;\/].*/,'').trim();
+    if(!clean){html+=`<div style="height:1.75em"></div>`;return;}
+    const w=assemble1(clean,pc);
+    const as=pc.toString(16).toUpperCase().padStart(8,'0');
+    if(w===null){html+=`<div class="irow"><span class="addr">${as}:</span><span class="hcol">????????</span><span class="acol err">/* error: ${clean.replace(/</g,'&lt;')} */</span></div>`;ec++;pc+=4;words.push(0);}
+    else{const hs=w.toString(16).toUpperCase().padStart(8,'0');let a=dw(w,pc)||`<span class="cmt">/* ${hs} */</span>`;html+=`<div class="irow"><span class="addr">${as}:</span><span class="hcol">${hs}</span><span class="acol">${a}</span></div>`;words.push(w);ok++;pc+=4;}
+  });
+  const out=document.getElementById('asmOut');
+  out.innerHTML=html||'<div style="padding:18px;color:var(--dim)">// empty</div>';
+  out._w=words;
+  document.getElementById('asmStat').textContent=`${ok} ok \u00b7 ${ec} errors`;
+  document.getElementById('asmStat').style.color=ec>0?'var(--rose)':'var(--sage2)';
+}
+
+function pullFromDisasm(){
+  if(!lastWords.length){toast('nothing disassembled yet');return;}
+  const lines=lastWords.map((w,i)=>{const pc=(lastBase+i*4)>>>0;const a=dw(w,pc);return a?a.replace(/<[^>]+>/g,'').replace(/\s+/g,' ').trim():'; unknown: '+w.toString(16).toUpperCase().padStart(8,'0');});
+  document.getElementById('asmIn').value=lines.join('\n');
+  document.getElementById('asmBase').value=lastBase.toString(16).toUpperCase();
+  toast('pulled from disasm');
+}
+
+function copyAsmHex(){
+  const w=document.getElementById('asmOut')._w;
+  if(!w||!w.length){toast('nothing assembled');return;}
+  navigator.clipboard.writeText(w.map(x=>x.toString(16).toUpperCase().padStart(8,'0')).join(' ')).then(()=>toast('copied!')).catch(()=>toast('copy failed'));
+}
+
+function pushToHexEdit(){
+  const w=document.getElementById('asmOut')._w;
+  if(!w||!w.length){toast('nothing assembled');return;}
+  hexBytes=[];
+  w.forEach(x=>{hexBytes.push((x>>>24)&0xFF,(x>>>16)&0xFF,(x>>>8)&0xFF,x&0xFF);});
+  hexSel=-1;renderHex();switchTab('hexEdit');toast('loaded into hex editor');
+}
+
+// ── Hex Editor ───────────────────────────────────────────────────
+function renderHex(){
+  const v=document.getElementById('hexView');
+  if(!hexBytes.length){v.innerHTML='<div style="color:var(--dim);padding:20px 0;font-size:14px;font-style:italic;font-family:\'IM Fell English\',serif">// empty.</div>';return;}
+  const C=16;let html='';
+  for(let r=0;r<hexBytes.length;r+=C){
+    const ra=r.toString(16).toUpperCase().padStart(8,'0');
+    let bc='',asc='';
+    for(let c=0;c<C;c++){
+      const idx=r+c;
+      if(idx<hexBytes.length){
+        const b=hexBytes[idx];const s=idx===hexSel?' sel':'';
+        bc+=`<span class="hcell${s}" onclick="hexClick(${idx})">${b.toString(16).toUpperCase().padStart(2,'0')}</span>`;
+        asc+=b>=0x20&&b<0x7f?String.fromCharCode(b):'.';
+      }else bc+=`<span class="hcell" style="opacity:0">--</span>`;
+    }
+    html+=`<div class="hex-row"><span class="hex-ra">${ra}:</span><div class="hex-bytes">${bc}</div><span class="hex-asc">${asc}</span></div>`;
+  }
+  v.innerHTML=html;
+}
+
+function hexClick(idx){
+  hexSel=idx;renderHex();
+  if(idx>=0&&idx<hexBytes.length){
+    document.getElementById('hexPatch').value=hexBytes[idx].toString(16).toUpperCase().padStart(2,'0');
+    document.getElementById('hexSelInfo').textContent=`sel: off=0x${idx.toString(16).toUpperCase()} val=0x${hexBytes[idx].toString(16).toUpperCase()}`;
+  }
+}
+
+function hexJump(){
+  const a=parseInt(document.getElementById('hexJumpIn').value.replace(/0x/i,''),16);
+  if(isNaN(a)){toast('invalid offset');return;}
+  const rows=document.getElementById('hexView').querySelectorAll('.hex-row');
+  const ri=Math.floor(a/16);
+  if(rows[ri]){rows[ri].scrollIntoView({behavior:'smooth',block:'center'});hexClick(a);}
+  else toast('out of range');
+}
+
+function hexClear(){hexBytes=[];hexSel=-1;renderHex();document.getElementById('hexSelInfo').textContent='';}
+function hexCopyAll(){
+  if(!hexBytes.length){toast('empty');return;}
+  navigator.clipboard.writeText(hexBytes.map(b=>b.toString(16).toUpperCase().padStart(2,'0')).join(' ')).then(()=>toast('copied!')).catch(()=>toast('failed'));
+}
+function hexDisasm(){
+  if(!hexBytes.length){toast('nothing loaded');return;}
+  document.getElementById('hexInput').value=hexBytes.map(b=>b.toString(16).toUpperCase().padStart(2,'0')).join('');
+  switchTab('disasm');disassemble();
+}
+
+function doPatch(){
+  if(hexSel<0||hexSel>=hexBytes.length){toast('no byte selected');return;}
+  const v=parseInt(document.getElementById('hexPatch').value,16);
+  if(isNaN(v)||v<0||v>255){toast('invalid byte');return;}
+  hexBytes[hexSel]=v;renderHex();
+  toast(`patched 0x${hexSel.toString(16).toUpperCase()} \u2192 0x${v.toString(16).toUpperCase()}`);
+}
+
+function loadHexRaw(){
+  const raw=document.getElementById('hexRaw').value;
+  const c=raw.replace(/0x/gi,'').replace(/[^0-9a-fA-F]/g,'');
+  hexBytes=[];
+  for(let i=0;i+1<c.length;i+=2)hexBytes.push(parseInt(c.slice(i,i+2),16));
+  hexSel=-1;document.getElementById('hexRaw').value='';renderHex();
+  toast(`loaded ${hexBytes.length} bytes`);
+}
+
+// ── Functions ────────────────────────────────────────────────────
+function renderFns(){
+  const q=(document.getElementById('fnSearch').value||'').toLowerCase();
+  const lst=document.getElementById('fnList');
+  const fil=functions.filter(f=>!q||f.name.toLowerCase().includes(q)||f.addr.toString(16).includes(q)||(f.cat&&f.cat.toLowerCase().includes(q)));
+  if(!fil.length){lst.innerHTML='<div style="padding:18px;color:var(--dim);font-size:14px;font-style:italic;font-family:\'IM Fell English\',serif">// no matches.</div>';return;}
+  lst.innerHTML=fil.map(f=>{
+    const as=f.addr.toString(16).toUpperCase().padStart(8,'0');
+    const fi=functions.indexOf(f);
+    const catCol={'OBJECT':'var(--rose2)','BEHAVIOR':'var(--lavender)','MARIO':'var(--gold2)','INTERFACE':'var(--sage2)','SOUND':'#c4a8d8','MATH':'var(--blush)','MEMORY':'var(--muted2)','UNKNOWN':'var(--muted)'};
+    const catBadge=f.cat?`<span style="font-size:11px;color:${catCol[f.cat]||'var(--muted)'};letter-spacing:1px;flex-shrink:0">${f.cat}</span>`:'';
+    const descSpan=f.desc?`<span class="fn-desc" title="${f.desc}">${f.desc}</span>`:'';
+    const lockIcon=f.builtin?`<span style="font-size:11px;color:var(--dim);flex-shrink:0" title="built-in">&#9632;</span>`:'';
+    return`<div class="fn-row" onclick="goFn(${fi})">
+      <span class="fn-addr">0x${as}</span>
+      <span class="fn-lbl"><input value="${f.name}" ondblclick="event.stopPropagation()" onblur="renameFn(${fi},this.value)" onclick="event.stopPropagation()"></span>
+      ${catBadge}
+      ${descSpan}
+      ${lockIcon}
+      <span style="font-size:12px;color:var(--muted);cursor:pointer;padding:0 4px;flex-shrink:0" onclick="event.stopPropagation();delFn(${fi})">\u00d7</span>
+    </div>`;
+  }).join('');
+}
+
+function goFn(idx){switchTab('disasm');setTimeout(()=>jumpTo(functions[idx].addr),80);}
+function renameFn(idx,n){if(functions[idx])functions[idx].name=n;renderFns();}
+function delFn(idx){functions.splice(idx,1);renderFns();}
+
+function addFn(){
+  const addr=parseInt(document.getElementById('fnAddr').value.replace(/0x/i,''),16);
+  const name=document.getElementById('fnName').value.trim()||`func_${addr.toString(16)}`;
+  if(isNaN(addr)){toast('invalid address');return;}
+  if(functions.find(f=>f.addr===addr)){toast('already exists');return;}
+  functions.push({addr,name,size:0});functions.sort((a,b)=>a.addr-b.addr);
+  document.getElementById('fnAddr').value='';document.getElementById('fnName').value='';
+  renderFns();toast('added '+name);
+}
+
+function autoDetectFns(){
+  if(!lastWords.length){toast('run disassembly first');return;}
+  let n=0;
+  lastWords.forEach((w,i)=>{
+    if(((w>>>26)&0x3F)===0x03){
+      const pc=(lastBase+i*4)>>>0;
+      const t=((pc&0xF0000000)|((w&0x3FFFFFF)<<2))>>>0;
+      if(!functions.find(f=>f.addr===t)){
+        const known=KNOWN_FUNCS[t>>>0];
+        functions.push({addr:t,name:known?known.name:`func_${t.toString(16)}`,size:0,desc:known?known.args:'',cat:known?known.cat:'',builtin:!!known});
+        n++;
+      }
+    }
+  });
+  functions.sort((a,b)=>a.addr-b.addr);renderFns();toast(`detected ${n} new function(s)`);
+}
+
+function clearFns(){functions=[];renderFns();}
+function exportFns(){
+  if(!functions.length){toast('no functions');return;}
+  const txt=functions.map(f=>`0x${f.addr.toString(16).toUpperCase().padStart(8,'0')} ${f.name}`).join('\n');
+  navigator.clipboard.writeText(txt).then(()=>toast('exported')).catch(()=>toast('failed'));
+}
+
+// ── Toast ─────────────────────────────────────────────────────────
+let _tt=null;
+function toast(msg){const el=document.getElementById('toast');el.textContent=msg;el.classList.add('show');if(_tt)clearTimeout(_tt);_tt=setTimeout(()=>el.classList.remove('show'),2400);}
+</script>
+</body>
+</html>
